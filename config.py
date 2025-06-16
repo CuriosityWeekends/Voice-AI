@@ -4,7 +4,7 @@ Fill in you're own API and IP's to procede
 '''
 
 GEMINI_CONFIG = {
-    "api_key": "AIzaSyCSqzYS2gHy1WEHXwoAfBfLuUK335-Edcg",
+    "api_key": "AIzaSyBNfWzgEc_NB9A1Ke81wGpPUltLOArXfnM",
     "model": "gemini-2.0-flash",
     "system_instruction": (
         "You are a cheerful female robot named Curiosity Bot. "
