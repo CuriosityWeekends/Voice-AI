@@ -1,9 +1,16 @@
 import google.generativeai as genai
+import google.generativeai.too
 from config import GEMINI_CONFIG
 import re
 
 genai.configure(api_key=GEMINI_CONFIG["api_key"])
 
+grounding_tool = types.Tool(
+    google_search=types.GoogleSearch()
+)
+tools_config = types.GenerateContentConfig(
+    tools=[grounding_tool]
+)
 regular_model = genai.GenerativeModel(
             model_name=GEMINI_CONFIG["model"],
             system_instruction=GEMINI_CONFIG["system_instruction"]+GEMINI_CONFIG["ai_system_instruction"]
@@ -28,6 +35,7 @@ def get_response(prompt: str) -> tuple[str, str]:
             "top_p": GEMINI_CONFIG["top_p"],
             "top_k": GEMINI_CONFIG["top_k"]
         },
+        config=tools_config,
         stream=GEMINI_CONFIG["streaming"]
     )
     bot_reply = response.text.strip().splitlines()
