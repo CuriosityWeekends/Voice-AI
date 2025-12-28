@@ -1,0 +1,5 @@
+SpeechRecognition
+paho-mqtt
+edge_tts
+asyncio
+

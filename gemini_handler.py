@@ -1,90 +1,132 @@
-import google.generativeai as genai
-import google.generativeai.too
+from google import genai
+from google.genai import types
 from config import GEMINI_CONFIG
 import re
 
-genai.configure(api_key=GEMINI_CONFIG["api_key"])
+# --------------------
+# Client (NEW SDK)
+# --------------------
+client = genai.Client(
+    api_key=GEMINI_CONFIG["api_key"]
+)
 
+# --------------------
+# Tools (Google Search grounding)
+# --------------------
 grounding_tool = types.Tool(
     google_search=types.GoogleSearch()
 )
+
 tools_config = types.GenerateContentConfig(
-    tools=[grounding_tool]
+    tools=[grounding_tool],
+    temperature=GEMINI_CONFIG["temperature"],
+    top_p=GEMINI_CONFIG["top_p"],
+    top_k=GEMINI_CONFIG["top_k"],
 )
-regular_model = genai.GenerativeModel(
-            model_name=GEMINI_CONFIG["model"],
-            system_instruction=GEMINI_CONFIG["system_instruction"]+GEMINI_CONFIG["ai_system_instruction"]
-        )
-my_initial_question = ''
-my_initial_response = ''
+
+# --------------------
+# Memory
+# --------------------
+my_initial_question = ""
+my_initial_response = ""
+
+
+# ====================
+# MAIN RESPONSE
+# ====================
 def get_response(prompt: str) -> tuple[str, str]:
-    global my_initial_question
-    global my_initial_response
-    if my_initial_question != '':
-        note = f"User previosly asked you: {my_initial_question}; you replied previously that: {my_initial_response}. Only Use this if the current prompt is related to you. "
+    global my_initial_question, my_initial_response
+
+    if my_initial_question:
+        note = (
+            f"User previously asked: {my_initial_question}. "
+            f"You previously replied: {my_initial_response}. "
+            f"Only use this if relevant. "
+        )
     else:
         note = ""
-    regular_model = genai.GenerativeModel(
-        model_name=GEMINI_CONFIG["model"],
-        system_instruction=GEMINI_CONFIG["system_instruction"]+GEMINI_CONFIG["ai_system_instruction"]+note,
+
+    system_instruction = (
+        GEMINI_CONFIG["system_instruction"]
+        + GEMINI_CONFIG["ai_system_instruction"]
+        + note
     )
-    response = regular_model.generate_content(
-        prompt,
-        generation_config={
-            "temperature": GEMINI_CONFIG["temperature"],
-            "top_p": GEMINI_CONFIG["top_p"],
-            "top_k": GEMINI_CONFIG["top_k"]
-        },
-        config=tools_config,
-        stream=GEMINI_CONFIG["streaming"]
+
+    response = client.models.generate_content(
+        model=GEMINI_CONFIG["model"],
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            tools=[grounding_tool],
+            temperature=GEMINI_CONFIG["temperature"],
+            top_p=GEMINI_CONFIG["top_p"],
+            top_k=GEMINI_CONFIG["top_k"],
+        ),
     )
-    bot_reply = response.text.strip().splitlines()
-    print("AI Output:", bot_reply)
-    command = bot_reply[0]
-    '''if command.startswith("pass,"):
-        reply_text = command[5:] + '\n'.join(bot_reply[1:])
-        command = "pass"
-    else:'''
-    my_initial_question = prompt
-    if "```python" in command or "```tool_code" in command:
-        print("Reformating format..")
-        command = '; '.join(re.findall(r"```(.*?)```", response.text.replace('```python', '```').replace('```tool_code', '```'), re.DOTALL)).strip()
-        reply_text = re.sub(r"```(.*?)```", "", response.text.replace('```python', '```').replace('```tool_code', '```'), flags=re.DOTALL).strip()
+
+    text = response.text or ""
+    bot_reply = text.strip().splitlines()
+
+    command = bot_reply[0] if bot_reply else ""
+    reply_text = ""
+
+    # ---- code block handling ----
+    if "```" in command:
+        print("Reformatting code blocks...")
+        code_blocks = re.findall(
+            r"```(.*?)```",
+            text.replace("```python", "```").replace("```tool_code", "```"),
+            re.DOTALL,
+        )
+        command = "; ".join(cb.strip() for cb in code_blocks)
+        reply_text = re.sub(
+            r"```.*?```",
+            "",
+            text.replace("```python", "```").replace("```tool_code", "```"),
+            flags=re.DOTALL,
+        ).strip()
     else:
-        if "command, " in bot_reply[1]: # Just In Case
-            command = f"{command}; {bot_reply[1]}"
-            reply_text = '\n'.join(bot_reply[2:])
-        else:
-            reply_text = '\n'.join(bot_reply[1:])
+        reply_text = "\n".join(bot_reply[1:]).strip()
+
+    my_initial_question = prompt
     my_initial_response = reply_text
+
     print("🤖 Little Bot says:", reply_text)
-    print("Command", command)
-    print("Init question is", my_initial_question)
+    print("Command:", command)
+
     return command, reply_text
 
-#This function is for ai to use
+
+# ====================
+# AI-INTERNAL CALL
+# ====================
 def give_get_response(note: str, prompt: str) -> tuple[str, str]:
-    print("Promt: ", prompt)
-    model_for_ai = genai.GenerativeModel(
-        model_name=GEMINI_CONFIG["model"],
-        system_instruction=GEMINI_CONFIG["system_instruction"] + note
+    print("Prompt:", prompt)
+
+    system_instruction = GEMINI_CONFIG["system_instruction"] + note
+
+    response = client.models.generate_content(
+        model=GEMINI_CONFIG["model"],
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            temperature=GEMINI_CONFIG["temperature"],
+            top_p=GEMINI_CONFIG["top_p"],
+            top_k=GEMINI_CONFIG["top_k"],
+        ),
     )
-    response = model_for_ai.generate_content(
-        prompt,
-        generation_config={
-            "temperature": GEMINI_CONFIG["temperature"],
-            "top_p": GEMINI_CONFIG["top_p"],
-            "top_k": GEMINI_CONFIG["top_k"]
-        },
-        stream=GEMINI_CONFIG["streaming"]
-    )
-    bot_reply = response.text.strip().splitlines()
-    command = bot_reply[0]
+
+    text = response.text or ""
+    bot_reply = text.strip().splitlines()
+
+    command = bot_reply[0] if bot_reply else ""
+    reply_text = "\n".join(bot_reply[1:]).strip()
+
     if command.startswith("pass,"):
-        reply_text = command[5:] + '\n'.join(bot_reply[1:])
+        reply_text = command[5:] + "\n" + reply_text
         command = "pass"
-    else:
-        reply_text = '\n'.join(bot_reply[1:])
+
     print("🤖 Little Bot says:", reply_text)
-    print("Command", command)
+    print("Command:", command)
+
     return command, reply_text
